@@ -61,11 +61,41 @@ async def test_slack_unsubscribe_reply_for_dedicated_channel(monkeypatch, tmp_pa
     ]
 
 
-def test_slack_report_builds_multiselect_blocks():
+def test_slack_report_builds_wide_message_multiselect_blocks():
     content = "\n".join([
         "# Gmail Trash Auto-Unsubscriber",
         "",
         "Pending browser-assisted candidates: **1**",
+        "",
+        "- `u-abc123` **news@example.com** — Sale",
+    ])
+
+    blocks = si.build_blocks(content, adapter=_FakeAdapter())
+
+    assert blocks is not None
+    select_block = next(
+        block for block in blocks
+        if block.get("block_id") == "email_unsubscriber_selection"
+    )
+    assert select_block["type"] == "input"
+    assert select_block["label"]["text"] == "Select senders to unsubscribe"
+    select = select_block["element"]
+    assert select["type"] == "multi_static_select"
+    assert select["action_id"] == si.ACTION_SELECT
+    option = select["options"][0]
+    assert option["text"]["text"] == "news@example.com: Sale"
+    assert option["value"] == "u-abc123"
+    assert "description" not in option
+    assert any(
+        el.get("action_id") == si.ACTION_UNSUBSCRIBE_SELECTED
+        for block in blocks if block.get("type") == "actions"
+        for el in block.get("elements", [])
+    )
+
+
+def test_slack_report_still_parses_legacy_via_domain_lines():
+    content = "\n".join([
+        "# Gmail Trash Auto-Unsubscriber",
         "",
         "- `u-abc123` **news@example.com** via `example.com` — Sale",
     ])
@@ -73,15 +103,11 @@ def test_slack_report_builds_multiselect_blocks():
     blocks = si.build_blocks(content, adapter=_FakeAdapter())
 
     assert blocks is not None
-    assert any(block.get("type") == "input" for block in blocks)
-    option = blocks[1]["element"]["options"][0]
-    assert option["text"]["text"] == "news@example.com: Sale"
-    assert option["description"]["text"] == "u-abc123"
-    assert any(
-        el.get("action_id") == si.ACTION_UNSUBSCRIBE_SELECTED
-        for block in blocks if block.get("type") == "actions"
-        for el in block.get("elements", [])
+    select_block = next(
+        block for block in blocks
+        if block.get("block_id") == "email_unsubscriber_selection"
     )
+    assert select_block["element"]["options"][0]["text"]["text"] == "news@example.com: Sale"
 
 
 def test_slack_report_blocks_ignore_non_unsubscriber_report():

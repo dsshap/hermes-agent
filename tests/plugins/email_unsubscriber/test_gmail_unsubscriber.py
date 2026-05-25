@@ -108,10 +108,13 @@ def test_scan_records_pending_and_seen():
     result = gu.scan_trash(_Service([_msg("m1")]), max_messages=10)
     assert "u-" in result.markdown
     assert "Pending browser-assisted candidates" in result.markdown
+    assert " via `" not in result.markdown
     state = gu.load_state()
     assert state["seen"] == ["m1"]
     assert len(state["candidates"]) == 1
     assert len(state["current_batch_ids"]) == 1
+    cid = state["current_batch_ids"][0]
+    assert f"- `{cid}` **news@example.com** — Sale" in result.markdown
 
 
 def test_body_https_unsubscribe_is_pending_browser_candidate():

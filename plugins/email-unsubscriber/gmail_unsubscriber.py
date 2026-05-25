@@ -636,7 +636,7 @@ def render_report(**kwargs: Any) -> str:
         for c in candidates[:50]:
             lines.append(
                 f"- `{c['id']}` **{c.get('email')}** "
-                f"via `{_url_host(c.get('url', ''))}` — {_short_subject(c.get('subject', ''))}"
+                f"— {_short_subject(c.get('subject', ''))}"
             )
     else:
         lines.append("")
@@ -650,7 +650,7 @@ def render_report(**kwargs: Any) -> str:
         for c in manual[:50]:
             lines.append(
                 f"- `{c['id']}` **{c.get('email')}** "
-                f"via `{_url_host(c.get('url', ''))}` — {_short_subject(c.get('subject', ''))}"
+                f"— {_short_subject(c.get('subject', ''))}"
             )
     return "\n".join(lines)
 

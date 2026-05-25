@@ -22,7 +22,7 @@ ACTION_UNSUBSCRIBE_SELECTED = "email_unsubscriber_unsubscribe_selected"
 ACTION_UNSUBSCRIBE_ALL = "email_unsubscriber_unsubscribe_all"
 _ACTION_IDS = (ACTION_SELECT, ACTION_UNSUBSCRIBE_SELECTED, ACTION_UNSUBSCRIBE_ALL)
 _REPORT_TITLE = "# Gmail Trash Auto-Unsubscriber"
-_CANDIDATE_RE = re.compile(r"- `(u-[^`]+)` \*\*([^*]+)\*\* via `([^`]+)`(?: — (.*))?")
+_CANDIDATE_RE = re.compile(r"- `(u-[^`]+)` \*\*([^*]+)\*\*(?: via `([^`]+)`)?(?: — (.*))?")
 _URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
 
 
@@ -53,13 +53,12 @@ def build_blocks(content: str, adapter: Any = None, metadata: Optional[dict] = N
 
     options: list[dict] = []
     for cid, sender, _domain, subject in candidate_lines[:50]:
-        subject = (subject or "").strip() or "(no subject)"
+        subject = _URL_RE.sub("[redacted URL]", (subject or "").strip()) or "(no subject)"
         label = _short_text(f"{sender}: {subject}", 75)
         options.append(
             {
                 "text": {"type": "plain_text", "text": label, "emoji": True},
                 "value": cid,
-                "description": {"type": "plain_text", "text": _short_text(cid, 75)},
             }
         )
 
