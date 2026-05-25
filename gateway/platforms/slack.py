@@ -48,6 +48,7 @@ from gateway.platforms.base import (
     safe_url_for_log,
     cache_document_from_bytes,
 )
+from gateway.platforms.slack_extensions import iter_slack_integrations
 
 
 logger = logging.getLogger(__name__)
@@ -681,6 +682,13 @@ class SlackAdapter(BasePlatformAdapter):
             ):
                 self._app.action(_action_id)(self._handle_slash_confirm_action)
 
+            # Register exact Block Kit action IDs declared by Slack integrations.
+            for _integration in iter_slack_integrations():
+                if not _integration.handle_action:
+                    continue
+                for _action_id in _integration.action_ids:
+                    self._app.action(_action_id)(self._handle_slack_integration_action)
+
             # Start Socket Mode handler in background
             self._handler = AsyncSocketModeHandler(self._app, app_token, proxy=proxy_url)
             _apply_slack_proxy(self._handler.client, proxy_url)
@@ -755,6 +763,33 @@ class SlackAdapter(BasePlatformAdapter):
             return self._team_clients[team_id]
         return self._app.client  # fallback to primary
 
+    async def _handle_slack_integration_action(self, ack, body, action) -> None:
+        """Dispatch a Slack Block Kit action to the registered integration."""
+        await ack()
+        action_id = action.get("action_id", "") if isinstance(action, dict) else ""
+        if not action_id:
+            return
+
+        for integration in iter_slack_integrations():
+            if action_id not in integration.action_ids or not integration.handle_action:
+                continue
+            try:
+                handled = await integration.handle_action(
+                    adapter=self,
+                    body=body if isinstance(body, dict) else {},
+                    action=action if isinstance(action, dict) else {},
+                )
+                if handled:
+                    return
+            except Exception as exc:
+                logger.warning(
+                    "[Slack] Integration action failed (integration=%s, action_id=%s, error=%s)",
+                    integration.name,
+                    action_id,
+                    type(exc).__name__,
+                )
+                return
+
     async def send(
         self,
         chat_id: str,
@@ -781,6 +816,25 @@ class SlackAdapter(BasePlatformAdapter):
             # Convert standard markdown → Slack mrkdwn
             formatted = self.format_message(content)
 
+            extension_blocks = None
+            for integration in iter_slack_integrations():
+                if not integration.build_blocks:
+                    continue
+                try:
+                    extension_blocks = integration.build_blocks(
+                        content=content,
+                        adapter=self,
+                        metadata=metadata,
+                    )
+                    if extension_blocks:
+                        break
+                except Exception as exc:
+                    logger.warning(
+                        "[Slack] Integration block builder failed (integration=%s, error=%s)",
+                        integration.name,
+                        type(exc).__name__,
+                    )
+
             # Split long messages, preserving code block boundaries
             chunks = self.truncate_message(formatted, self.MAX_MESSAGE_LENGTH)
 
@@ -802,6 +856,8 @@ class SlackAdapter(BasePlatformAdapter):
                     # Only broadcast the first chunk of the first reply
                     if broadcast and i == 0:
                         kwargs["reply_broadcast"] = True
+                if extension_blocks and i == 0:
+                    kwargs["blocks"] = extension_blocks
 
                 last_result = await self._get_client(chat_id).chat_postMessage(**kwargs)
 
@@ -1928,6 +1984,28 @@ class SlackAdapter(BasePlatformAdapter):
         # Track which workspace owns this channel
         if team_id and channel_id:
             self._channel_team[channel_id] = team_id
+
+        # Give Slack integrations a chance to handle plain thread replies
+        # before normal mention gating (for feature-local human-in-the-loop UI).
+        for integration in iter_slack_integrations():
+            if not integration.handle_message:
+                continue
+            try:
+                handled = await integration.handle_message(
+                    adapter=self,
+                    event=event,
+                    original_text=original_text,
+                    channel_id=channel_id,
+                    thread_ts=event.get("thread_ts") or ts,
+                )
+                if handled:
+                    return
+            except Exception as exc:
+                logger.warning(
+                    "[Slack] Integration message handler failed (integration=%s, error=%s)",
+                    integration.name,
+                    type(exc).__name__,
+                )
 
         # Determine if this is a DM or channel message
         channel_type = event.get("channel_type", "")
