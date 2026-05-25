@@ -1,0 +1,5 @@
+name: email-unsubscriber
+version: "0.1.0"
+description: "Gmail Trash unsubscribe assistant with Slack review controls."
+author: NousResearch
+kind: standalone

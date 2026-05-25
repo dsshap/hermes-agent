@@ -309,17 +309,27 @@ _HERMES_BEHAVIORAL_VARS = frozenset({
 
 
 @pytest.fixture(autouse=True)
-def _hermetic_environment(tmp_path, monkeypatch):
+def _hermetic_environment(request, tmp_path, monkeypatch):
     """Blank out all credential/behavioral env vars so local and CI match.
 
     Also redirects HOME and HERMES_HOME to per-test tempdirs so code that
     reads ``~/.hermes/*`` can't touch the real one, and pins TZ/LANG so
     datetime/locale-sensitive tests are deterministic.
     """
+    live_llm_browser_opt_in = (
+        request.node.get_closest_marker("live_llm_browser") is not None
+        and os.environ.get("HERMES_RUN_LIVE_LLM_BROWSER_TESTS") == "1"
+    )
+
     # 1. Blank every credential-shaped env var that's currently set.
-    for name in list(os.environ.keys()):
-        if _looks_like_credential(name):
-            monkeypatch.delenv(name, raising=False)
+    # Live LLM/browser smoke tests are the only exception: they are skipped
+    # unless explicitly opted in, and they need the developer's configured
+    # provider credentials. The test-local fixture still points HERMES_HOME at
+    # a temp copy so state writes don't hit the real ~/.hermes tree.
+    if not live_llm_browser_opt_in:
+        for name in list(os.environ.keys()):
+            if _looks_like_credential(name):
+                monkeypatch.delenv(name, raising=False)
 
     # 2. Blank behavioral HERMES_* vars that could change test semantics.
     for name in _HERMES_BEHAVIORAL_VARS:
